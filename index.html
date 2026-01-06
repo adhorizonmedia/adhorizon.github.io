@@ -873,24 +873,14 @@
               </tr>
           `).join("");
           
-          // Cards
+          // Cards - UŻYWAMY TEJ SAMEJ FUNKCJI renderLeadHeader
           document.getElementById("cardView").innerHTML = list.map(r => `
              <div class="lead-card">
-                 <div class="lead-card-header">
-                     <div style="flex: 1;">
-                         <div style="font-weight: bold; font-size: 16px; margin-bottom: 4px;">🆔 ID: ${r.id}</div>
-                         <div class="muted">📅 ${formatDate(r.created)}</div>
-                     </div>
-                     <div style="text-align:right">
-                         <span class="status-badge ${statusClass(r.status)}">${escapeHtml(r.status)}</span>
-                         <div class="muted" style="margin-top:5px">Aktualizacja:<br>${formatDate(r.updated)}</div>
-                     </div>
-                 </div>
+                 ${renderLeadHeader(r)}
                  <div class="lead-card-info">
                      <p><strong>🧾 ${escapeHtml(r.name)}</strong></p>
                      <p>📞 ${formatPhone(r.phone)}</p>
                      <p>✉️ ${escapeHtml(r.email)}</p>
-                     <p>📢 ${escapeHtml(r.campaign)}</p>
                      <p>⏱️ ${calculateWaitTimes(r.created, r.updated, r.waitUntil, r.status)}</p>
                  </div>
                  <div class="lead-card-actions">
@@ -917,19 +907,10 @@
           const r = allLeadsMap.get(String(id));
           if(!r) return;
       
+          // UŻYWAMY TEJ SAMEJ FUNKCJI renderLeadHeader
           document.getElementById("previewContent").innerHTML = `
               <div class="box">
-                  <div class="status-row">
-                      <div>
-                           <p>🆔 <strong>ID:</strong> ${escapeHtml(r.id)}</p>
-                           <p>📅 <strong>Zgłoszenie:</strong> ${formatDate(r.created)}</p>
-                           <p>📢 <strong>Kampania:</strong> ${escapeHtml(r.campaign)}</p>
-                      </div>
-                      <div style="text-align:right">
-                           <span class="status-badge ${statusClass(r.status)}">${escapeHtml(r.status)}</span>
-                           <div class="muted" style="margin-top:5px">Aktualizacja:<br>${formatDate(r.updated)}</div>
-                      </div>
-                  </div>
+                  ${renderLeadHeader(r)}
               </div>
               <div class="box data">
                   <p><strong>🧾 Pacjent:</strong> ${escapeHtml(r.name)}</p>
