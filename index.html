@@ -787,7 +787,7 @@
                       
                       <button onclick="loadDashboard(true)" class="btn-tool btn-apply">🔍 Zastosuj</button>
                       <button onclick="toggleSort()" id="sortBtn" class="btn-tool">📅 Najnowsze</button>
-                      <button onclick="clearFilters()" id="clearFiltersBtn" class="btn-tool disabled">🧹 Wyczyść</button>
+                      <button onclick="clearFilters()" id="clearBtn" class="btn-tool disabled">🧹 Wyczyść</button>
                   </div>
       
                   <div class="table-scroll">
@@ -812,7 +812,7 @@
           `;
          fetchCampaigns();
          setTimeout(() => {
-             initialFiltersState = JSON.stringify(getFiltersState());
+             initialFiltersState = getFiltersState();
              updateClearButtonState();
          }, 0);
       }
@@ -925,7 +925,12 @@
           document.getElementById("dateFrom").value = "";
           document.getElementById("dateTo").value = "";
           document.querySelectorAll('.multiselect-content input').forEach(cb => cb.checked = false);
+      
           loadDashboard(true);
+      
+          // po wyczyszczeniu wracamy do stanu bazowego
+          initialFiltersState = getFiltersState();
+          updateClearButtonState();
       }
       
       function openPreview(id) {
@@ -1095,28 +1100,19 @@
           return {
               dateFrom: document.getElementById("dateFrom")?.value || "",
               dateTo: document.getElementById("dateTo")?.value || "",
-              status: Array.from(document.querySelectorAll('#statusList input:checked'))
-                  .map(cb => cb.value)
-                  .sort()
-                  .join(","),
-              campaigns: Array.from(document.querySelectorAll('#campList input:checked'))
-                  .map(cb => cb.value)
-                  .sort()
-                  .join(",")
+              status: Array.from(document.querySelectorAll('#statusList input:checked')).map(cb => cb.value).sort().join(","),
+              campaigns: Array.from(document.querySelectorAll('#campList input:checked')).map(cb => cb.value).sort().join(",")
           };
       }
 
       function updateClearButtonState() {
-          const btn = document.getElementById("clearFiltersBtn");
-          if (!btn || !initialFiltersState) return;
+          const clearBtn = document.getElementById("clearBtn");
+          if (!clearBtn || !initialFiltersState) return;
       
-          const current = JSON.stringify(getFiltersState());
+          const current = getFiltersState();
+          const changed = JSON.stringify(current) !== JSON.stringify(initialFiltersState);
       
-          if (current === initialFiltersState) {
-              btn.classList.add("disabled");
-          } else {
-              btn.classList.remove("disabled");
-          }
+          clearBtn.classList.toggle("disabled", !changed);
       }
       
       // ====== INIT ======
@@ -1172,6 +1168,14 @@
               e.target.matches('#dateFrom, #dateTo') ||
               e.target.closest('#statusList') ||
               e.target.closest('#campList')
+          ) {
+              updateClearButtonState();
+          }
+      });
+
+      document.addEventListener("change", (e) => {
+          if (
+              e.target.closest(".dashboard-toolbar")
           ) {
               updateClearButtonState();
           }
