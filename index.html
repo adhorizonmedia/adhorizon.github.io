@@ -750,6 +750,7 @@
                   ${!lead.canEdit ? '<p class="muted" style="text-align:center; color:#f44336; font-weight:bold; margin-top:20px;">⛔ Edycja zablokowana</p>' : ''}
               </div>
           `;
+         updateStatusButtonsOpacity(lead);
       }
       
       // ====== DASHBOARD ======
@@ -1121,6 +1122,39 @@
               document.querySelectorAll('.multiselect-content').forEach(el => el.classList.remove('show'));
           }
       });
+
+      function updateStatusButtonsOpacity(lead) {
+       const buttons = document.querySelectorAll('.buttons.status-buttons a');
+       const now = new Date();
+   
+       buttons.forEach(btn => {
+           const key = btn.classList.contains('obs') ? 'obsluzony'
+                     : btn.classList.contains('nie') ? 'nie_odbiera'
+                     : btn.classList.contains('odrz') ? 'odrzucony'
+                     : null;
+   
+           if (!key) return;
+   
+           let muted = false;
+   
+           if (key === 'porzucony') muted = true;               // zawsze przyciemniony
+           else if (key === 'nie_odbiera') muted = false;      // nigdy przyciemniony
+           else if (key === 'nowy') muted = true;              // zawsze przyciemniony
+           else if (key === 'odrzucony' || key === 'obsluzony') {
+               const updated = new Date(lead.lastUpdate || lead.date);
+               const diffMins = (now - updated) / 60000;
+               if (diffMins > 20) muted = true;               // >20 min → przyciemniony
+           }
+   
+           if (muted) {
+               btn.style.opacity = 0.65;
+               btn.style.filter = 'grayscale(25%)';
+           } else {
+               btn.style.opacity = 1;
+               btn.style.filter = 'none';
+           }
+       });
+   }
    </script>
 </body>
 </html>
