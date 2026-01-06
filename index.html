@@ -668,6 +668,7 @@
       let dashboardOffset = 0;
       let dashboardSort = "desc";
       let currentLeadStatus = "nowy";
+      let initialFiltersState = null;
       
       // ====== API ======
       async function apiCall(body) {
@@ -786,7 +787,7 @@
                       
                       <button onclick="loadDashboard(true)" class="btn-tool btn-apply">🔍 Zastosuj</button>
                       <button onclick="toggleSort()" id="sortBtn" class="btn-tool">📅 Najnowsze</button>
-                      <button onclick="clearFilters()" class="btn-tool">🧹 Wyczyść</button>
+                      <button onclick="clearFilters()" id="clearFiltersBtn" class="btn-tool disabled">🧹 Wyczyść</button>
                   </div>
       
                   <div class="table-scroll">
@@ -809,7 +810,11 @@
                   </div>
               </div>
           `;
-          fetchCampaigns();
+         fetchCampaigns();
+         setTimeout(() => {
+             initialFiltersState = JSON.stringify(getFiltersState());
+             updateClearButtonState();
+         }, 0);
       }
       
       function toggleDropdown(id) {
@@ -1085,6 +1090,34 @@
       function showError(m) { 
           app.innerHTML = `<div class="content"><h3>⛔ Błąd</h3><p>${m}</p></div>`; 
       }
+
+      function getFiltersState() {
+          return {
+              dateFrom: document.getElementById("dateFrom")?.value || "",
+              dateTo: document.getElementById("dateTo")?.value || "",
+              status: Array.from(document.querySelectorAll('#statusList input:checked'))
+                  .map(cb => cb.value)
+                  .sort()
+                  .join(","),
+              campaigns: Array.from(document.querySelectorAll('#campList input:checked'))
+                  .map(cb => cb.value)
+                  .sort()
+                  .join(",")
+          };
+      }
+
+      function updateClearButtonState() {
+          const btn = document.getElementById("clearFiltersBtn");
+          if (!btn || !initialFiltersState) return;
+      
+          const current = JSON.stringify(getFiltersState());
+      
+          if (current === initialFiltersState) {
+              btn.classList.add("disabled");
+          } else {
+              btn.classList.remove("disabled");
+          }
+      }
       
       // ====== INIT ======
       showLoader("Łączenie z serwerem...");
@@ -1134,6 +1167,15 @@
            }
        });
    }
+      document.addEventListener("change", (e) => {
+          if (
+              e.target.matches('#dateFrom, #dateTo') ||
+              e.target.closest('#statusList') ||
+              e.target.closest('#campList')
+          ) {
+              updateClearButtonState();
+          }
+      });
    </script>
 </body>
 </html>
