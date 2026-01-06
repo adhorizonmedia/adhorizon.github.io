@@ -543,6 +543,28 @@
          .status-badge { font-size: 11px; padding: 6px 12px; }
          .lead-card { padding: 12px; }
       }
+
+      .status-buttons .btn-action {
+          opacity: 0.6;
+          filter: grayscale(20%);
+      }
+      
+      .status-buttons .btn-action.active {
+          opacity: 1;
+          filter: none;
+          box-shadow: 0 6px 16px rgba(0,0,0,0.25);
+          transform: scale(1.02);
+      }
+
+      #previewModal .lead-info-card,
+      #previewModal .lead-info-section,
+      #previewModal .info-row {
+          text-align: left;
+      }
+      
+      #previewModal .lead-info-header {
+          align-items: flex-start;
+      }
    </style>
 </head>
 <body>
@@ -574,7 +596,6 @@
    <div id="previewModal" class="loader hidden" onclick="closePreview(event)">
       <div class="loader-box modal-preview-box" onclick="event.stopPropagation()">
          <div class="header">
-            <div class="modal-close-x" onclick="closePreview()">×</div>
             <h2>Szczegóły leada</h2>
          </div>
          <div id="previewContent"></div>
@@ -722,10 +743,18 @@
                       </div>
                   </div>
                   
-                  <div class="buttons ${lead.canEdit ? "" : "disabled"}">
-                      <a class="obs btn-action" onclick="handleStatusClick('obsluzony')">✔️ Obsłużony</a>
-                      <a class="nie btn-action" onclick="handleStatusClick('nie_odbiera')">📞 Nie odbiera</a>
-                      <a class="odrz btn-action" onclick="handleStatusClick('odrzucony')">✖️ Odrzucony</a>
+                  <div class="buttons status-buttons ${lead.canEdit ? "" : "disabled"}">
+                     <a class="obs btn-action ${lead.statusKey === 'obsluzony' ? 'active' : ''}" onclick="handleStatusClick('obsluzony')">
+                        ✔️ Obsłużony
+                     </a>
+                     
+                     <a class="nie btn-action ${lead.statusKey === 'nie_odbiera' ? 'active' : ''}" onclick="handleStatusClick('nie_odbiera')">
+                        📞 Nie odbiera
+                     </a>
+                     
+                     <a class="odrz btn-action ${lead.statusKey === 'odrzucony' ? 'active' : ''}" onclick="handleStatusClick('odrzucony')">
+                        ✖️ Odrzucony
+                     </a>
                   </div>
                   
                   ${!lead.canEdit ? '<div class="lock-message">🔒 Edycja zablokowana</div>' : ''}
@@ -922,6 +951,11 @@
       
           document.getElementById("previewContent").innerHTML = `
               <div class="lead-info-card" style="border:none; box-shadow:none;">
+                <div style="padding:16px 16px 0 16px;">
+                    <button class="btn-back" onclick="closePreview()">
+                        <span>Powrót</span>
+                    </button>
+                </div>
                   <div class="lead-info-section">
                       <div class="lead-info-header">
                           <div class="lead-meta">
@@ -987,9 +1021,6 @@
                           </div>
                       </div>
                   </div>
-              </div>
-              <div style="padding: 16px; background: #f8f9fa; border-top: 1px solid #e8eaed;">
-                  <button class="btn-modal close-btn" onclick="closePreview()" style="width:100%;">Zamknij</button>
               </div>
           `;
           
@@ -1143,7 +1174,12 @@
       }
       
       // ====== INIT ======
-      window.
+      if (row && token) {
+          loadSingle();
+      } else {
+          renderListLayout();
+          loadDashboard(true);
+      }
    </script>
 </body>
 </html>
