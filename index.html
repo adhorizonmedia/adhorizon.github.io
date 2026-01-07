@@ -748,9 +748,7 @@
                      <div class="card-view" id="cardView"></div>
                      
                      <div class="load-more-wrapper">
-                         <button id="loadMoreBtn" onclick="loadDashboard(false)" class="btn-tool">
-                             Załaduj więcej
-                         </button>
+                         <button id="loadMoreBtn" onclick="loadDashboard(false)" class="btn-tool">Załaduj więcej</button>
                      </div>
                  </div>
              `;
@@ -765,7 +763,6 @@
          }
          
          async function fetchCampaigns() {
-             // Sprawdź cache localStorage
              const cached = localStorage.getItem(CACHE_KEY_CAMPAIGNS);
              if (cached) {
                  try {
@@ -775,18 +772,15 @@
                          return;
                      }
                  } catch (e) {
-                     // Uszkodzony cache, usuń
                      localStorage.removeItem(CACHE_KEY_CAMPAIGNS);
                  }
              }
              
-             // Pobierz z API
              try {
                  const d = await apiCall({ action: 'campaigns' });
                  if (!d) return;
                  
                  if (d.success && d.campaigns) {
-                     // Zapisz w cache
                      localStorage.setItem(CACHE_KEY_CAMPAIGNS, JSON.stringify({
                          data: d.campaigns,
                          timestamp: Date.now()
@@ -807,7 +801,7 @@
              if (reset) {
                  dashboardOffset = 0;
                  allLeadsMap.clear();
-                 sortedLeadsList = []; // 🆕 Wyczyść cache sortowania
+                 sortedLeadsList = [];
                  document.getElementById("tableBody").innerHTML = "";
                  document.getElementById("cardView").innerHTML = "";
              }
@@ -827,7 +821,10 @@
                  
                  hideLoader();
                  if (!d) return;
-                 if (!d.success) return alert("Błąd: " + (d.error || "Nieznany"));
+                 if (!d.success) {
+                     alert("Błąd: " + (d.error || "Nieznany"));
+                     return;
+                 }
                  
                  currentTotal = d.total; 
                  d.rows.forEach(r => allLeadsMap.set(String(r.id), r));
@@ -842,24 +839,23 @@
          }
          
          function displayData() {
-             // Sortuj tylko gdy dane się zmieniły
-             const needsResort = sortedLeadsList.length !== allLeadsMap.size;
-             
-             if (needsResort) {
+             if (sortedLeadsList.length !== allLeadsMap.size) {
                  sortedLeadsList = Array.from(allLeadsMap.values()).sort((a, b) => {
                      const diff = parseInt(b.id) - parseInt(a.id);
                      return dashboardSort === "desc" ? diff : -diff;
                  });
              }
-         
-             // Renderuj z cache
              renderTable(sortedLeadsList);
              renderCards(sortedLeadsList);
          }
 
          function renderTable(list) {
-             document.getElementById("tableBody").innerHTML = list.map(r => `
-                 <tr>
+             const tbody = document.getElementById("tableBody");
+             const fragment = document.createDocumentFragment();
+             
+             list.forEach(r => {
+                 const tr = document.createElement('tr');
+                 tr.innerHTML = `
                      <td>${escapeHtml(r.id)}</td>
                      <td>${formatDate(r.created)}</td>
                      <td>
@@ -872,13 +868,22 @@
                      <td>${calculateWaitTimes(r.created, r.updated, r.waitUntil, r.status)}</td>
                      <td>${escapeHtml(r.campaign)}</td>
                      <td><button class="btn-tool btn-details" onclick="openPreview('${escapeHtml(r.id)}')">🔍 Szczegóły</button></td>
-                 </tr>
-             `).join("");
+                 `;
+                 fragment.appendChild(tr);
+             });
+             
+             tbody.innerHTML = '';
+             tbody.appendChild(fragment);
          }
 
          function renderCards(list) {
-             document.getElementById("cardView").innerHTML = list.map(r => `
-                 <div class="lead-card">
+             const cardView = document.getElementById("cardView");
+             const fragment = document.createDocumentFragment();
+             
+             list.forEach(r => {
+                 const card = document.createElement('div');
+                 card.className = 'lead-card';
+                 card.innerHTML = `
                      ${renderLeadHeader(r)}
                      <div class="lead-card-info">
                          <p><strong>🧾 ${escapeHtml(r.name)}</strong></p>
@@ -890,14 +895,18 @@
                      <div class="lead-card-actions">
                          <button class="btn-tool" onclick="openPreview('${escapeHtml(r.id)}')" style="width: 100%;">Szczegóły</button>
                      </div>
-                 </div>
-             `).join("");
+                 `;
+                 fragment.appendChild(card);
+             });
+             
+             cardView.innerHTML = '';
+             cardView.appendChild(fragment);
          }
          
          function toggleSort() {
              dashboardSort = dashboardSort === "desc" ? "asc" : "desc";
              document.getElementById("sortBtn").innerText = dashboardSort === "desc" ? "📅 Najnowsze" : "📅 Najstarsze";
-             sortedLeadsList = []; // 🆕 Wyczyść cache sortowania przed reload
+             sortedLeadsList = [];
              loadDashboard(true);
          }
          
@@ -905,10 +914,7 @@
              document.getElementById("dateFrom").value = "";
              document.getElementById("dateTo").value = "";
              document.querySelectorAll('.multiselect-content input').forEach(cb => cb.checked = false);
-         
              loadDashboard(true);
-         
-             // po wyczyszczeniu wracamy do stanu bazowego
              initialFiltersState = getFiltersState();
              updateClearButtonState();
          }
@@ -982,9 +988,7 @@
                  hideLoader();
                  if (!d) return;
                  if (d.success) {
-                     // 🆕 Wyczyść cache kampanii po update
                      localStorage.removeItem(CACHE_KEY_CAMPAIGNS);
-                     
                      app.innerHTML = '<div class="content" style="text-align:center; padding:50px;"><h2>✅ Zapisano</h2><button class="btn-tool" onclick="location.reload()" style="margin:20px auto;">Wróć</button></div>';
                  } else {
                      alert("Błąd: " + d.error);
@@ -1052,7 +1056,6 @@
              const workStart = waitUntil && waitUntil > created ? waitUntil : created;
              let workMins = Math.max(0, Math.floor((end - workStart) / 60000));
          
-             // Klasy CSS zamiast inline styles
              let cssClass = "wait-time-normal";
              if (workMins > 1440) cssClass = "wait-time-critical";
              else if (workMins > 120) cssClass = "wait-time-high";
@@ -1125,26 +1128,9 @@
              if (!clearBtn || !initialFiltersState) return;
          
              const changed = !filtersEqual(getFiltersState(), initialFiltersState);
-         
              clearBtn.classList.toggle("disabled", !changed);
              clearBtn.title = changed ? "" : "Brak aktywnych filtrów";
          }
-         
-         // ====== INIT ======
-         showLoader("Łączenie z serwerem...");
-         
-         if (row && token) {
-             loadSingle();
-         } else {
-             renderListLayout();
-             loadDashboard(true);
-         }
-         
-         document.addEventListener("click", (e) => {
-             if (!e.target.closest('.multiselect')) {
-                 document.querySelectorAll('.multiselect-content').forEach(el => el.classList.remove('show'));
-             }
-         });
          
          function updateStatusButtonsOpacity(lead) {
           const buttons = document.querySelectorAll('.buttons.status-buttons a');
@@ -1178,6 +1164,22 @@
               }
           });
          }
+         
+         // ====== INIT ======
+         showLoader("Łączenie z serwerem...");
+         
+         if (row && token) {
+             loadSingle();
+         } else {
+             renderListLayout();
+             loadDashboard(true);
+         }
+         
+         document.addEventListener("click", (e) => {
+             if (!e.target.closest('.multiselect')) {
+                 document.querySelectorAll('.multiselect-content').forEach(el => el.classList.remove('show'));
+             }
+         });
          
          document.addEventListener("change", (e) => {
              if (e.target.closest(".dashboard-toolbar")) {
