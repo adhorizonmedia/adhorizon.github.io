@@ -571,6 +571,12 @@
          const CACHE_KEY_CAMPAIGNS = 'leadsCampaigns_v1';
          const CACHE_DURATION = 3600000;
          
+         const params = new URLSearchParams(window.location.search);
+         let row = params.get("row");
+         let token = params.get("token");
+         const key = params.get("key");
+         
+         // Jeśli brak w URL, sprawdź sessionStorage
          if (!row || !token) {
            const stored = sessionStorage.getItem('leadAuth');
            if (stored) {
