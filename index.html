@@ -605,7 +605,7 @@
                      <div class="lead-header-left">
                          <div class="lead-id">🆔 ID: ${escapeHtml(lead.id)}</div>
                          <div class="lead-date">📅 ${formatDate(lead.created || lead.date)}</div>
-                         ${lead.campaign ? `<div class="lead-campaign">📢 ${escapeHtml(lead.campaign)}</div>` : ''}
+                         
                      </div>
                      <div class="lead-header-right">
                          <span class="status-badge ${statusClass(lead.status || lead.statusKey)}">${escapeHtml(lead.status || 'Nowy')}</span>
