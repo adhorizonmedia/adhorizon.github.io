@@ -807,10 +807,17 @@
                  dashboardOffset = 0;
                  allLeadsMap.clear();
                  sortedLeadsList = [];
-                 document.getElementById("tableBody").innerHTML = "";
-                 document.getElementById("cardView").innerHTML = "";
-             }
-             showLoader("Pobieranie...");
+                 document.getElementById("tableBody").innerHTML = `
+                   <tr>
+                     <td colspan="8" style="text-align:center; padding:30px; color:#888;">
+                       ⏳ Pobieranie danych…
+                     </td>
+                   </tr>`;
+                 document.getElementById("cardView").innerHTML = `
+                   <div style="padding:20px; text-align:center; color:#888;">
+                     ⏳ Pobieranie danych…
+                   </div>`;
+               }
          
              try {
                  const d = await apiCall({
