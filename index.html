@@ -566,17 +566,17 @@
          </div>
       </div>
       <script>
-         // ====== CONFIG ======
+         // ====== KONFIGURACJA ======
          const API_URL = "https://script.google.com/macros/s/AKfycbzKRhMb-C2ZXgMuDdn9tPNpKez9WpxtzPYsi1r_hU_uF8ZZuJBNJkcEJm5Epg43elll/exec";
-         const CACHE_KEY_CAMPAIGNS = 'leadsCampaigns_v2'; // Zmiana wersji cache po poprawce
+         const CACHE_KEY_CAMPAIGNS = 'leadsCampaigns_v3'; // Nowa wersja cache
          const CACHE_DURATION = 3600000;
          
+         // Pobieranie parametrów URL i Auth
          const params = new URLSearchParams(window.location.search);
          let row = params.get("row");
          let token = params.get("token");
          const key = params.get("key");
          
-         // Auth check
          if (!row || !token) {
            const stored = sessionStorage.getItem('leadAuth');
            if (stored) {
@@ -595,6 +595,7 @@
            }
          }
          
+         // Stan aplikacji
          let allLeadsMap = new Map();
          let sortedLeadsList = [];
          let currentTotal = 0;
@@ -603,23 +604,19 @@
          let currentLeadStatus = "nowy";
          let initialFiltersState = null;
          
-         // ====== UTILS & UI ======
-         function escapeHtml(text) {
-             if (!text) return '-';
-             const div = document.createElement('div');
-             div.textContent = String(text);
-             return div.innerHTML;
+         // ====== UI UTILS (Loadery i Powiadomienia) ======
+         
+         // 1. Globalny Loader (Overlay) - używany do wszystkiego
+         function showLoader(text = "Ładowanie...") { 
+             document.querySelector("#loader .loader-text").textContent = text;
+             document.getElementById("loader").classList.remove("hidden"); 
          }
          
-         function debounce(func, wait) {
-             let timeout;
-             return function(...args) {
-                 clearTimeout(timeout);
-                 timeout = setTimeout(() => func(...args), wait);
-             };
+         function hideLoader() { 
+             document.getElementById("loader").classList.add("hidden");
          }
-         
-         // Nowy system powiadomień (zastępuje alert)
+
+         // 2. Globalny Toast (Dymek) - dla błędów niekrytycznych i sukcesów
          function showToast(message, type = 'error') {
             const existing = document.getElementById('toast-msg');
             if (existing) existing.remove();
@@ -635,13 +632,39 @@
             `;
             toast.innerText = message;
             document.body.appendChild(toast);
-            
-            // Animacja
             requestAnimationFrame(() => toast.style.opacity = '1');
             setTimeout(() => {
                 toast.style.opacity = '0';
                 setTimeout(() => toast.remove(), 300);
             }, 3500);
+         }
+
+         // 3. Globalny Ekran Błędu - tylko dla błędów krytycznych (gdy aplikacja nie może działać)
+         function showErrorScreen(title, details) { 
+             // Ukrywamy loader jeśli jest
+             hideLoader();
+             app.innerHTML = `
+                <div class="content" style="text-align:center; padding:50px;">
+                    <div style="font-size: 48px; margin-bottom: 20px;">⛔</div>
+                    <h3 style="color:#d32f2f; margin-bottom:10px;">${title}</h3>
+                    <p style="color:#555; max-width: 400px; margin: 0 auto;">${details}</p>
+                    <button class="btn-tool" onclick="location.reload()" style="margin:30px auto;">Odśwież stronę</button>
+                </div>`;
+         }
+         
+         function escapeHtml(text) {
+             if (!text) return '-';
+             const div = document.createElement('div');
+             div.textContent = String(text);
+             return div.innerHTML;
+         }
+         
+         function debounce(func, wait) {
+             let timeout;
+             return function(...args) {
+                 clearTimeout(timeout);
+                 timeout = setTimeout(() => func(...args), wait);
+             };
          }
 
          const debouncedLoadDashboard = debounce(() => loadDashboard(true), 500);
@@ -659,7 +682,6 @@
              const data = await res.json();
              
              if (!data.success) {
-                // Jeśli błąd to "Za dużo zapytań", nie rzucamy błędu tylko zwracamy null, UI sobie poradzi
                 if (data.error?.includes('Za dużo')) {
                     showToast('⏱️ Za dużo zapytań. Odczekaj chwilę.', 'error');
                     return null;
@@ -672,7 +694,7 @@
            }
          }
          
-         // ====== RENDER SINGLE LEAD ======
+         // ====== SINGLE LEAD ======
          function renderLeadHeader(lead) {
              return `
                  <div class="lead-header">
@@ -689,18 +711,18 @@
          
          async function loadSingle() {
              document.body.classList.remove("dashboard-mode");
-             showLoader("Pobieranie danych...");
+             showLoader("Pobieranie danych..."); // Ujednolicony loader
              
              try {
                  const d = await apiCall({ action: 'single', row, token });
-                 hideLoader();
                  if (d) {
                      currentLeadStatus = String(d.lead.statusKey || "nowy");
                      renderSingle(d.lead);
                  }
-             } catch(err) {
                  hideLoader();
-                 showErrorScreen("Nie udało się pobrać leada.", err.message);
+             } catch(err) {
+                 // Tutaj błąd jest krytyczny - nie możemy pokazać leada
+                 showErrorScreen("Nie udało się pobrać leada", err.message);
              }
          }
          
@@ -796,61 +818,18 @@
              `;
          }
          
-         function toggleDropdown(id) {
-             const el = document.getElementById(id);
-             const isShow = el.classList.contains("show");
-             document.querySelectorAll('.multiselect-content').forEach(c => c.classList.remove('show'));
-             if(!isShow) el.classList.add("show");
-         }
-         
-         // Pobieranie kampanii
-         async function fetchCampaigns() {
-             const cached = localStorage.getItem(CACHE_KEY_CAMPAIGNS);
-             if (cached) {
-                 try {
-                     const { data, timestamp } = JSON.parse(cached);
-                     if (Date.now() - timestamp < CACHE_DURATION) {
-                         renderCampaigns(data);
-                         return;
-                     }
-                 } catch (e) { localStorage.removeItem(CACHE_KEY_CAMPAIGNS); }
-             }
-             
-             try {
-                 const d = await apiCall({ action: 'campaigns' });
-                 if (d && d.campaigns) {
-                     localStorage.setItem(CACHE_KEY_CAMPAIGNS, JSON.stringify({ data: d.campaigns, timestamp: Date.now() }));
-                     renderCampaigns(d.campaigns);
-                 } else {
-                     document.getElementById("campList").innerHTML = '<div style="padding:10px; color:#888;">Brak kampanii</div>';
-                 }
-             } catch(err) {
-                 console.error(err);
-                 document.getElementById("campList").innerHTML = '<div style="padding:10px; color:#f44;">Błąd pobierania</div>';
-             }
-         }
-         
-         // Pobieranie listy leadów
          async function loadDashboard(reset = true) {
-             const tbody = document.getElementById("tableBody");
-             const cView = document.getElementById("cardView");
-             
+             // UJEDNOLICENIE: Używamy globalnego loadera zamiast spinnera w tabeli
              if (reset) {
+                 showLoader("Pobieranie leadów...");
                  dashboardOffset = 0;
                  allLeadsMap.clear();
                  sortedLeadsList = [];
-                 // Ujednolicony loading w tabeli
-                 tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; padding:40px;">
-                    <div class="spinner" style="margin:0 auto 10px;"></div>
-                    <div style="color:#666;">Pobieranie leadów...</div>
-                 </td></tr>`;
-                 cView.innerHTML = `<div style="text-align:center; padding:40px;">
-                    <div class="spinner" style="margin:0 auto 10px;"></div>
-                    <div style="color:#666;">Pobieranie leadów...</div>
-                 </div>`;
                  document.getElementById("loadMoreBtn").style.display = "none";
+                 // Czyścimy widok na czas ładowania
+                 document.getElementById("tableBody").innerHTML = "";
+                 document.getElementById("cardView").innerHTML = "";
              } else {
-                 // Loading dla przycisku "Więcej"
                  document.getElementById("loadMoreBtn").innerText = "Ładowanie...";
                  document.getElementById("loadMoreBtn").style.opacity = "0.7";
              }
@@ -867,12 +846,12 @@
                      campaigns: Array.from(document.querySelectorAll('#campList input:checked')).map(cb => cb.value).join(",")
                  });
                  
-                 // Przywróć przycisk
+                 // Reset przycisku
                  const btn = document.getElementById("loadMoreBtn");
                  btn.innerText = "Załaduj więcej";
                  btn.style.opacity = "1";
 
-                 if (!d) return; // Błąd obsłużony w apiCall (np. limit zapytań)
+                 if (!d) return; 
                  
                  currentTotal = d.total;
                  d.rows.forEach(r => allLeadsMap.set(String(r.id), r));
@@ -883,25 +862,26 @@
                  // Pusty stan
                  if (allLeadsMap.size === 0) {
                      const emptyMsg = `<div style="text-align:center; padding:30px; color:#888;">Brak wyników dla wybranych filtrów</div>`;
-                     tbody.innerHTML = `<tr><td colspan="8">${emptyMsg}</td></tr>`;
-                     cView.innerHTML = emptyMsg;
+                     document.getElementById("tableBody").innerHTML = `<tr><td colspan="8">${emptyMsg}</td></tr>`;
+                     document.getElementById("cardView").innerHTML = emptyMsg;
                  }
 
                  document.getElementById("loadMoreBtn").style.display = (allLeadsMap.size < currentTotal) ? "block" : "none";
                  
              } catch(err) {
-                 const errorMsg = `<div style="text-align:center; padding:20px; color:#d32f2f;">
-                    <strong>Błąd pobierania:</strong> ${err.message}<br>
-                    <button class="btn-tool" onclick="loadDashboard(${reset})" style="margin-top:10px">Spróbuj ponownie</button>
-                 </div>`;
-                 if (reset) {
-                    tbody.innerHTML = `<tr><td colspan="8">${errorMsg}</td></tr>`;
-                    cView.innerHTML = errorMsg;
+                 // UJEDNOLICENIE BŁĘDÓW
+                 if (reset && allLeadsMap.size === 0) {
+                     // Jeśli to pierwsze ładowanie i padło -> Ekran Błędu
+                     showErrorScreen("Błąd pobierania danych", err.message);
                  } else {
-                    showToast(err.message, 'error');
+                     // Jeśli to kolejne ładowanie -> Toast (nie niszczymy widoku)
+                     showToast(err.message, 'error');
                  }
+             } finally {
+                 // Zawsze ukryj loader (dla reset=true)
+                 if (reset) hideLoader();
+                 updateClearButtonState();
              }
-             updateClearButtonState();
          }
          
          function displayData() {
@@ -967,6 +947,50 @@
              cardView.appendChild(fragment);
          }
          
+         // Funkcje pomocnicze
+         function toggleDropdown(id) {
+             const el = document.getElementById(id);
+             const isShow = el.classList.contains("show");
+             document.querySelectorAll('.multiselect-content').forEach(c => c.classList.remove('show'));
+             if(!isShow) el.classList.add("show");
+         }
+         
+         async function fetchCampaigns() {
+             const cached = localStorage.getItem(CACHE_KEY_CAMPAIGNS);
+             if (cached) {
+                 try {
+                     const { data, timestamp } = JSON.parse(cached);
+                     if (Date.now() - timestamp < CACHE_DURATION) {
+                         renderCampaigns(data);
+                         return;
+                     }
+                 } catch (e) { localStorage.removeItem(CACHE_KEY_CAMPAIGNS); }
+             }
+             
+             try {
+                 const d = await apiCall({ action: 'campaigns' });
+                 if (d && d.campaigns) {
+                     localStorage.setItem(CACHE_KEY_CAMPAIGNS, JSON.stringify({ data: d.campaigns, timestamp: Date.now() }));
+                     renderCampaigns(d.campaigns);
+                 } else {
+                     document.getElementById("campList").innerHTML = '<div style="padding:10px; color:#888;">Brak kampanii</div>';
+                 }
+             } catch(err) {
+                 document.getElementById("campList").innerHTML = '<div style="padding:10px; color:#f44;">Błąd pobierania</div>';
+             }
+         }
+
+         function renderCampaigns(campaigns) {
+             const c = document.getElementById("campList");
+             c.innerHTML = campaigns.length 
+                 ? campaigns.map(name => `<label><input type="checkbox" value="${escapeHtml(name)}"> ${escapeHtml(name)}</label>`).join("")
+                 : '<div style="padding:10px; color:#888;">Brak kampanii</div>';
+             setTimeout(() => {
+                 initialFiltersState = getFiltersState();
+                 updateClearButtonState();
+             }, 0);
+         }
+         
          function toggleSort() {
              dashboardSort = dashboardSort === "desc" ? "asc" : "desc";
              document.getElementById("sortBtn").innerText = dashboardSort === "desc" ? "📅 Najnowsze" : "📅 Najstarsze";
@@ -1014,7 +1038,6 @@
              document.getElementById("previewModal").classList.add("hidden"); 
          }
          
-         // ====== UPDATE STATUS ======
          function handleStatusClick(newS) {
              if (currentLeadStatus === "nowy") {
                  updateStatus(newS);
@@ -1022,7 +1045,6 @@
                  const statusNames = { 'obsluzony': 'Obsłużony', 'nie_odbiera': 'Nie odbiera', 'odrzucony': 'Odrzucony' };
                  document.getElementById("confirmMsg").innerHTML = `Czy na pewno chcesz zmienić status<br>z <strong>${statusNames[currentLeadStatus] || currentLeadStatus}</strong><br>na <strong>${statusNames[newS] || newS}</strong>?`;
                  document.getElementById("confirmModal").classList.remove("hidden");
-                 
                  document.getElementById("confirmYes").onclick = () => {
                      document.getElementById("confirmModal").classList.add("hidden");
                      updateStatus(newS);
@@ -1034,13 +1056,12 @@
          }
          
          async function updateStatus(s) {
-             showLoader("Zapisywanie...");
+             showLoader("Zapisywanie..."); // Ujednolicony loader
              try {
                  const d = await apiCall({ action: 'update', row, token, status: s });
                  hideLoader();
                  if (d) {
                      localStorage.removeItem(CACHE_KEY_CAMPAIGNS);
-                     // Success screen inside app
                      app.innerHTML = `
                         <div class="content" style="text-align:center; padding:50px; display:flex; flex-direction:column; align-items:center; justify-content:center; height:80vh;">
                             <div style="font-size:60px; margin-bottom:20px;">✅</div>
@@ -1055,7 +1076,35 @@
              }
          }
          
-         // ====== HELPERS ======
+         function goToDashboard() {
+             const url = new URL(window.location.href);
+             url.searchParams.delete("row");
+             url.searchParams.delete("token");
+             window.location.href = url.toString();
+         }
+         
+         function getFiltersState() {
+             return {
+                 dateFrom: document.getElementById("dateFrom")?.value || "",
+                 dateTo: document.getElementById("dateTo")?.value || "",
+                 status: Array.from(document.querySelectorAll('#statusList input:checked')).map(cb => cb.value).sort().join(","),
+                 campaigns: Array.from(document.querySelectorAll('#campList input:checked')).map(cb => cb.value).sort().join(",")
+             };
+         }
+
+         function filtersEqual(a, b) {
+            return a.dateFrom === b.dateFrom && a.dateTo === b.dateTo && a.status === b.status && a.campaigns === b.campaigns;
+         }
+         
+         function updateClearButtonState() {
+             const clearBtn = document.getElementById("clearBtn");
+             if (!clearBtn || !initialFiltersState) return;
+             const changed = !filtersEqual(getFiltersState(), initialFiltersState);
+             clearBtn.classList.toggle("disabled", !changed);
+             clearBtn.title = changed ? "" : "Brak aktywnych filtrów";
+         }
+
+         // Helpers
          function statusClass(s) {
              s = String(s || "").toLowerCase();
              if (s.includes("porzu")) return "s-porzucony";
@@ -1124,64 +1173,6 @@
              `;
          }
          
-         function renderCampaigns(campaigns) {
-             const c = document.getElementById("campList");
-             c.innerHTML = campaigns.length 
-                 ? campaigns.map(name => `<label><input type="checkbox" value="${escapeHtml(name)}"> ${escapeHtml(name)}</label>`).join("")
-                 : '<div style="padding:10px; color:#888;">Brak kampanii</div>';
-             setTimeout(() => {
-                 initialFiltersState = getFiltersState();
-                 updateClearButtonState();
-             }, 0);
-         }
-         
-         function goToDashboard() {
-             const url = new URL(window.location.href);
-             url.searchParams.delete("row");
-             url.searchParams.delete("token");
-             window.location.href = url.toString();
-         }
-         
-         function showLoader(t) { 
-             document.querySelector("#loader .loader-text").textContent = t;
-             document.getElementById("loader").classList.remove("hidden"); 
-         }
-         
-         function hideLoader() { 
-             document.getElementById("loader").classList.add("hidden");
-         }
-         
-         // Ujednolicony ekran błędu (zamiast alertów)
-         function showErrorScreen(title, details) { 
-             app.innerHTML = `
-                <div class="content" style="text-align:center; padding:50px;">
-                    <h3 style="color:#d32f2f; margin-bottom:10px;">⛔ ${title}</h3>
-                    <p style="color:#555;">${details}</p>
-                    <button class="btn-tool" onclick="location.reload()" style="margin:20px auto;">Odśwież stronę</button>
-                </div>`;
-         }
-         
-         function getFiltersState() {
-             return {
-                 dateFrom: document.getElementById("dateFrom")?.value || "",
-                 dateTo: document.getElementById("dateTo")?.value || "",
-                 status: Array.from(document.querySelectorAll('#statusList input:checked')).map(cb => cb.value).sort().join(","),
-                 campaigns: Array.from(document.querySelectorAll('#campList input:checked')).map(cb => cb.value).sort().join(",")
-             };
-         }
-
-         function filtersEqual(a, b) {
-            return a.dateFrom === b.dateFrom && a.dateTo === b.dateTo && a.status === b.status && a.campaigns === b.campaigns;
-         }
-         
-         function updateClearButtonState() {
-             const clearBtn = document.getElementById("clearBtn");
-             if (!clearBtn || !initialFiltersState) return;
-             const changed = !filtersEqual(getFiltersState(), initialFiltersState);
-             clearBtn.classList.toggle("disabled", !changed);
-             clearBtn.title = changed ? "" : "Brak aktywnych filtrów";
-         }
-         
          function updateStatusButtonsOpacity(lead) {
           const buttons = document.querySelectorAll('.buttons.status-buttons a');
           const now = new Date();
@@ -1207,20 +1198,7 @@
           });
          }
          
-         // ====== INIT ======
-         if (row && token) {
-              loadSingle();
-         } else {
-              renderListLayout();
-              // Równoległe ładowanie
-              Promise.all([
-                fetch(API_URL + '?action=boot', { keepalive: true }).catch(() => {}),
-                fetchCampaigns()
-              ]).finally(() => {
-                loadDashboard(true);
-              });
-         }
-         
+         // Event Listeners
          document.addEventListener("click", (e) => {
              if (!e.target.closest('.multiselect')) {
                  document.querySelectorAll('.multiselect-content').forEach(el => el.classList.remove('show'));
@@ -1229,6 +1207,19 @@
          document.addEventListener("change", (e) => {
              if (e.target.closest(".dashboard-toolbar")) debouncedUpdateClearButton();
          });
+
+         // Init
+         if (row && token) {
+              loadSingle();
+         } else {
+              renderListLayout();
+              Promise.all([
+                fetch(API_URL + '?action=boot', { keepalive: true }).catch(() => {}),
+                fetchCampaigns()
+              ]).finally(() => {
+                loadDashboard(true);
+              });
+         }
       </script>
    </body>
 </html>
