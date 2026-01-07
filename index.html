@@ -609,7 +609,7 @@
                      </div>
                      <div class="lead-header-right">
                          <span class="status-badge ${statusClass(lead.status || lead.statusKey)}">${escapeHtml(lead.status || 'Nowy')}</span>
-                         <div class="lead-updated">Aktualizacja:<br>${formatDate(lead.updated)}</div>
+                         <div class="lead-updated">Aktualizacja:<br>${formatDate(lead.updated || lead.lastUpdate)}</div>
                      </div>
                  </div>
              `;
