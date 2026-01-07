@@ -640,9 +640,7 @@
          // ====== SINGLE LEAD ======
          async function loadSingle() {
              document.body.classList.remove("dashboard-mode");
-             if (reset) {
-               showLoader("Pobieranie...");
-             }
+             showLoader("Pobieranie...");
              
              try {
                  const d = await apiCall({ action: 'single', row, token });
@@ -743,7 +741,13 @@
                                      <th>ID</th><th>Data</th><th>Pacjent</th><th>Status</th><th>Aktualizacja</th><th>Czas</th><th>Kampania</th><th>Akcja</th>
                                  </tr>
                              </thead>
-                             <tbody id="tableBody"></tbody>
+                             <tbody id="tableBody">
+                                <tr>
+                                  <td colspan="8" style="text-align:center; padding:30px; color:#888;">
+                                    ⏳ Pobieranie danych…
+                                  </td>
+                                </tr>
+                              </tbody>
                          </table>
                      </div>
                      
