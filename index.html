@@ -553,6 +553,11 @@
             background: #f9fafb;
             transform: none;
          }
+         .wait-time-critical { font-weight: 700; color: #880e4f; }
+         .wait-time-high { font-weight: 700; color: #d32f2f; }
+         .wait-time-medium { font-weight: 700; color: #ef6c00; }
+         .wait-time-normal { font-weight: 700; color: #2e7d32; }
+         .wait-time-total { font-size: 0.85em; color: #666; margin-left: 4px; }
       </style>
    </head>
    <body>
@@ -621,6 +626,9 @@
          const row = params.get("row");
          const token = params.get("token");
          const key = params.get("key");
+         const CACHE_KEY_CAMPAIGNS = 'leadsCampaigns_v1';
+         const CACHE_DURATION = 3600000;
+         let sortedLeadsList = [];
          
          let allLeadsMap = new Map();
          let currentTotal = 0;
@@ -650,6 +658,14 @@
            } catch (err) {
              throw new Error("Błąd połączenia: " + err.message);
            }
+         }
+
+         function debounce(func, wait) {
+             let timeout;
+             return function executedFunction(...args) {
+                 clearTimeout(timeout);
+                 timeout = setTimeout(() => func(...args), wait);
+             };
          }
          
          // ====== SINGLE LEAD ======
@@ -780,26 +796,49 @@
          }
          
          async function fetchCampaigns() {
+             // Sprawdź cache localStorage
+             const cached = localStorage.getItem(CACHE_KEY_CAMPAIGNS);
+             if (cached) {
+                 try {
+                     const { data, timestamp } = JSON.parse(cached);
+                     if (Date.now() - timestamp < CACHE_DURATION) {
+                         renderCampaigns(data);
+                         return;
+                     }
+                 } catch (e) {
+                     // Uszkodzony cache, usuń
+                     localStorage.removeItem(CACHE_KEY_CAMPAIGNS);
+                 }
+             }
+             
+             // Pobierz z API
              try {
                  const d = await apiCall({ action: 'campaigns' });
                  if (!d) return;
-                 const c = document.getElementById("campList");
-                 c.innerHTML = (d.success && d.campaigns) 
-                     ? d.campaigns.map(name => `<label><input type="checkbox" value="${escapeHtml(name)}"> ${escapeHtml(name)}</label>`).join("")
-                     : '<div style="padding:10px; color:#888;">Brak kampanii</div>';
+                 
+                 if (d.success && d.campaigns) {
+                     // Zapisz w cache
+                     localStorage.setItem(CACHE_KEY_CAMPAIGNS, JSON.stringify({
+                         data: d.campaigns,
+                         timestamp: Date.now()
+                     }));
+                     renderCampaigns(d.campaigns);
+                 } else {
+                     document.getElementById("campList").innerHTML = 
+                         '<div style="padding:10px; color:#888;">Brak kampanii</div>';
+                 }
              } catch(err) {
-                 document.getElementById("campList").innerHTML = '<div style="padding:10px; color:#f44;">Błąd</div>';
+                 console.error('Błąd pobierania kampanii:', err);
+                 document.getElementById("campList").innerHTML = 
+                     '<div style="padding:10px; color:#f44;">Błąd</div>';
              }
-            setTimeout(() => {
-               initialFiltersState = getFiltersState();
-               updateClearButtonState();
-            }, 0);
          }
          
          async function loadDashboard(reset = true) {
              if (reset) {
                  dashboardOffset = 0;
                  allLeadsMap.clear();
+                 sortedLeadsList = []; // 🆕 Wyczyść cache sortowania
                  document.getElementById("tableBody").innerHTML = "";
                  document.getElementById("cardView").innerHTML = "";
              }
@@ -830,16 +869,26 @@
                  hideLoader();
                  alert("Błąd: " + err.message);
              }
-            updateClearButtonState();
+             updateClearButtonState();
          }
          
          function displayData() {
-             let list = Array.from(allLeadsMap.values()).sort((a, b) => {
-                 const diff = parseInt(b.id) - parseInt(a.id);
-                 return dashboardSort === "desc" ? diff : -diff;
-             });
+             // Sortuj tylko gdy dane się zmieniły
+             const needsResort = sortedLeadsList.length !== allLeadsMap.size;
+             
+             if (needsResort) {
+                 sortedLeadsList = Array.from(allLeadsMap.values()).sort((a, b) => {
+                     const diff = parseInt(b.id) - parseInt(a.id);
+                     return dashboardSort === "desc" ? diff : -diff;
+                 });
+             }
          
-             // Table
+             // Renderuj z cache
+             renderTable(sortedLeadsList);
+             renderCards(sortedLeadsList);
+         }
+
+         function renderTable(list) {
              document.getElementById("tableBody").innerHTML = list.map(r => `
                  <tr>
                      <td>${escapeHtml(r.id)}</td>
@@ -856,28 +905,30 @@
                      <td><button class="btn-tool btn-details" onclick="openPreview('${escapeHtml(r.id)}')">🔍 Szczegóły</button></td>
                  </tr>
              `).join("");
-             
-             // Cards - UŻYWAMY TEJ SAMEJ FUNKCJI renderLeadHeader
+         }
+
+         function renderCards(list) {
              document.getElementById("cardView").innerHTML = list.map(r => `
-                <div class="lead-card">
-                    ${renderLeadHeader(r)}
-                    <div class="lead-card-info">
-                        <p><strong>🧾 ${escapeHtml(r.name)}</strong></p>
-                        <p><strong>📞 Nr. Tel:</strong> ${formatPhone(r.phone)}</p>
-                        <p><strong>✉️ Mail:</strong> ${escapeHtml(r.email)}</p>
-                        <p><strong>⏱️ Czas kontaktu:</strong> ${calculateWaitTimes(r.created, r.updated, r.waitUntil, r.status)}</p>
-                        <p><strong>📢 Kampania:</strong> ${escapeHtml(r.campaign)}</p>
-                    </div>
-                    <div class="lead-card-actions">
-                        <button class="btn-tool" onclick="openPreview('${escapeHtml(r.id)}')" style="width: 100%;">Szczegóły</button>
-                    </div>
-                </div>
-            `).join("");
+                 <div class="lead-card">
+                     ${renderLeadHeader(r)}
+                     <div class="lead-card-info">
+                         <p><strong>🧾 ${escapeHtml(r.name)}</strong></p>
+                         <p><strong>📞 Nr. Tel:</strong> ${formatPhone(r.phone)}</p>
+                         <p><strong>✉️ Mail:</strong> ${escapeHtml(r.email)}</p>
+                         <p><strong>⏱️ Czas kontaktu:</strong> ${calculateWaitTimes(r.created, r.updated, r.waitUntil, r.status)}</p>
+                         <p><strong>📢 Kampania:</strong> ${escapeHtml(r.campaign)}</p>
+                     </div>
+                     <div class="lead-card-actions">
+                         <button class="btn-tool" onclick="openPreview('${escapeHtml(r.id)}')" style="width: 100%;">Szczegóły</button>
+                     </div>
+                 </div>
+             `).join("");
          }
          
          function toggleSort() {
              dashboardSort = dashboardSort === "desc" ? "asc" : "desc";
              document.getElementById("sortBtn").innerText = dashboardSort === "desc" ? "📅 Najnowsze" : "📅 Najstarsze";
+             sortedLeadsList = []; // 🆕 Wyczyść cache sortowania przed reload
              loadDashboard(true);
          }
          
@@ -894,26 +945,34 @@
          }
          
          function openPreview(id) {
-             const r = allLeadsMap.get(String(id));
-             if(!r) return;
+             try {
+                 const r = allLeadsMap.get(String(id));
+                 if (!r) {
+                     console.error('Lead not found:', id);
+                     alert('Nie można znaleźć leada');
+                     return;
+                 }
          
-             // UŻYWAMY TEJ SAMEJ FUNKCJI renderLeadHeader
-             document.getElementById("previewContent").innerHTML = `
-                 <div class="box">
-                     ${renderLeadHeader(r)}
-                 </div>
-                 <div class="box data">
-                     <p><strong>🧾 Pacjent:</strong> ${escapeHtml(r.name)}</p>
-                     <p><strong>📞 Telefon:</strong> ${formatPhone(r.phone)}</p>
-                     <p><strong>✉️ Email:</strong> ${escapeHtml(r.email)}</p>
-                     <p><strong>⏱️ Czas:</strong> ${calculateWaitTimes(r.created, r.updated, r.waitUntil, r.status)}</p>
-                     <p><strong>📢 Kampania:</strong> ${escapeHtml(r.campaign)}</p>
-                     <hr style="border:0; border-top:1px solid #eee; margin:10px 0;">
-                     <p><strong>🦷 Info 1:</strong> ${escapeHtml(r.info1)}</p>
-                     <p><strong>📝 Info 2:</strong> ${escapeHtml(r.info2)}</p>
-                 </div>`;
-             
-             document.getElementById("previewModal").classList.remove("hidden");
+                 document.getElementById("previewContent").innerHTML = `
+                     <div class="box">
+                         ${renderLeadHeader(r)}
+                     </div>
+                     <div class="box data">
+                         <p><strong>🧾 Pacjent:</strong> ${escapeHtml(r.name)}</p>
+                         <p><strong>📞 Telefon:</strong> ${formatPhone(r.phone)}</p>
+                         <p><strong>✉️ Email:</strong> ${escapeHtml(r.email)}</p>
+                         <p><strong>⏱️ Czas:</strong> ${calculateWaitTimes(r.created, r.updated, r.waitUntil, r.status)}</p>
+                         <p><strong>📢 Kampania:</strong> ${escapeHtml(r.campaign)}</p>
+                         <hr style="border:0; border-top:1px solid #eee; margin:10px 0;">
+                         <p><strong>🦷 Info 1:</strong> ${escapeHtml(r.info1)}</p>
+                         <p><strong>📝 Info 2:</strong> ${escapeHtml(r.info2)}</p>
+                     </div>`;
+                 
+                 document.getElementById("previewModal").classList.remove("hidden");
+             } catch (error) {
+                 console.error('Error opening preview:', error);
+                 alert('Nie można otworzyć szczegółów leada');
+             }
          }
          
          function closePreview(e) { 
@@ -954,6 +1013,9 @@
                  hideLoader();
                  if (!d) return;
                  if (d.success) {
+                     // 🆕 Wyczyść cache kampanii po update
+                     localStorage.removeItem(CACHE_KEY_CAMPAIGNS);
+                     
                      app.innerHTML = '<div class="content" style="text-align:center; padding:50px;"><h2>✅ Zapisano</h2><button class="btn-tool" onclick="location.reload()" style="margin:20px auto;">Wróć</button></div>';
                  } else {
                      alert("Błąd: " + d.error);
@@ -998,10 +1060,8 @@
                  if (!str || str === "-") return null;
                  const [date, time] = str.split(" ");
                  if (!date) return null;
-         
                  const [y, mo, d] = date.split("-").map(Number);
                  const [h = 0, mi = 0] = (time || "").split(":").map(Number);
-         
                  const dt = new Date(y, mo - 1, d, h, mi);
                  return isNaN(dt.getTime()) ? null : dt;
              };
@@ -1013,32 +1073,21 @@
              const waitUntil = parse(waitUntilStr);
              const now = new Date();
          
-             // 🔒 SANITY CHECK – aktualizacja nie może być wcześniejsza niż utworzenie
-             if (updated && updated < created) {
-                 updated = null;
-             }
+             if (updated && updated < created) updated = null;
          
              const s = String(status || "").toLowerCase();
              const isFinished = ['obs', 'nie_odb', 'odrz', 'porzu'].some(x => s.includes(x));
-         
              const end = (isFinished && updated) ? updated : now;
          
-             // 🔒 RAW TIME (całkowity)
-             let rawMins = Math.floor((end - created) / 60000);
-             if (rawMins < 0) rawMins = 0;
+             let rawMins = Math.max(0, Math.floor((end - created) / 60000));
+             const workStart = waitUntil && waitUntil > created ? waitUntil : created;
+             let workMins = Math.max(0, Math.floor((end - workStart) / 60000));
          
-             // 🔒 WORK TIME (od waitUntil lub created)
-             const workStart =
-                 waitUntil && waitUntil > created ? waitUntil : created;
-         
-             let workMins = Math.floor((end - workStart) / 60000);
-             if (workMins < 0) workMins = 0;
-         
-             // 🎨 Kolor
-             let color = "#2e7d32";
-             if (workMins > 1440) color = "#880e4f";
-             else if (workMins > 120) color = "#d32f2f";
-             else if (workMins > 30) color = "#ef6c00";
+             // Klasy CSS zamiast inline styles
+             let cssClass = "wait-time-normal";
+             if (workMins > 1440) cssClass = "wait-time-critical";
+             else if (workMins > 120) cssClass = "wait-time-high";
+             else if (workMins > 30) cssClass = "wait-time-medium";
          
              const fmt = (m) => {
                  if (m >= 1440) return Math.floor(m / 1440) + " dni";
@@ -1047,13 +1096,23 @@
              };
          
              return `
-                 <span style="font-weight:700; color:${color}">
-                     ${fmt(workMins)}
-                 </span>
-                 <span style="font-size:0.85em; color:#666; margin-left:4px;">
-                     (łącznie: ${fmt(rawMins)})
-                 </span>
+                 <span class="${cssClass}">${fmt(workMins)}</span>
+                 <span class="wait-time-total">(łącznie: ${fmt(rawMins)})</span>
              `;
+         }
+         
+         function renderCampaigns(campaigns) {
+             const c = document.getElementById("campList");
+             c.innerHTML = campaigns.length 
+                 ? campaigns.map(name => 
+                     `<label><input type="checkbox" value="${escapeHtml(name)}"> ${escapeHtml(name)}</label>`
+                   ).join("")
+                 : '<div style="padding:10px; color:#888;">Brak kampanii</div>';
+             
+             setTimeout(() => {
+                 initialFiltersState = getFiltersState();
+                 updateClearButtonState();
+             }, 0);
          }
          
          function goToDashboard() {
