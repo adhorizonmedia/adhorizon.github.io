@@ -568,7 +568,7 @@
       <script>
          // ====== CONFIG ======
          const API_URL = "https://script.google.com/macros/s/AKfycbzKRhMb-C2ZXgMuDdn9tPNpKez9WpxtzPYsi1r_hU_uF8ZZuJBNJkcEJm5Epg43elll/exec";
-         const CACHE_KEY_CAMPAIGNS = 'leadsCampaigns_v1';
+         const CACHE_KEY_CAMPAIGNS = 'leadsCampaigns_v2'; // Zmiana wersji cache po poprawce
          const CACHE_DURATION = 3600000;
          
          const params = new URLSearchParams(window.location.search);
@@ -576,7 +576,7 @@
          let token = params.get("token");
          const key = params.get("key");
          
-         // Jeśli brak w URL, sprawdź sessionStorage
+         // Auth check
          if (!row || !token) {
            const stored = sessionStorage.getItem('leadAuth');
            if (stored) {
@@ -584,7 +584,6 @@
                const auth = JSON.parse(stored);
                row = auth.row;
                token = auth.token;
-               // Wyczyść URL z tokenów
                if (row) {
                  const url = new URL(window.location.href);
                  url.searchParams.set('lead', row);
@@ -592,9 +591,7 @@
                  url.searchParams.delete('token');
                  window.history.replaceState({}, '', url);
                }
-             } catch (e) {
-               console.error('Invalid stored auth');
-             }
+             } catch (e) { console.error('Auth error'); }
            }
          }
          
@@ -606,7 +603,7 @@
          let currentLeadStatus = "nowy";
          let initialFiltersState = null;
          
-         // ====== UTILS ======
+         // ====== UTILS & UI ======
          function escapeHtml(text) {
              if (!text) return '-';
              const div = document.createElement('div');
@@ -621,13 +618,38 @@
                  timeout = setTimeout(() => func(...args), wait);
              };
          }
+         
+         // Nowy system powiadomień (zastępuje alert)
+         function showToast(message, type = 'error') {
+            const existing = document.getElementById('toast-msg');
+            if (existing) existing.remove();
+
+            const toast = document.createElement('div');
+            toast.id = 'toast-msg';
+            toast.style.cssText = `
+                position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+                background: ${type === 'success' ? '#2e7d32' : '#d32f2f'};
+                color: white; padding: 12px 24px; border-radius: 8px;
+                box-shadow: 0 4px 12px rgba(0,0,0,0.2); z-index: 10000;
+                font-weight: 600; font-size: 14px; opacity: 0; transition: opacity 0.3s;
+            `;
+            toast.innerText = message;
+            document.body.appendChild(toast);
+            
+            // Animacja
+            requestAnimationFrame(() => toast.style.opacity = '1');
+            setTimeout(() => {
+                toast.style.opacity = '0';
+                setTimeout(() => toast.remove(), 300);
+            }, 3500);
+         }
+
          const debouncedLoadDashboard = debounce(() => loadDashboard(true), 500);
          const debouncedUpdateClearButton = debounce(updateClearButtonState, 250);
          
          // ====== API ======
          async function apiCall(body) {
            if (!key) throw new Error("Brak klucza dostępu");
-           
            try {
              const res = await fetch(API_URL, {
                method: "POST",
@@ -636,18 +658,21 @@
              });
              const data = await res.json();
              
-             if (!data.success && data.error?.includes('Za dużo zapytań')) {
-               showError('⏱️ Za dużo zapytań. Odczekaj chwilę i spróbuj ponownie.');
-               return null;
+             if (!data.success) {
+                // Jeśli błąd to "Za dużo zapytań", nie rzucamy błędu tylko zwracamy null, UI sobie poradzi
+                if (data.error?.includes('Za dużo')) {
+                    showToast('⏱️ Za dużo zapytań. Odczekaj chwilę.', 'error');
+                    return null;
+                }
+                throw new Error(data.error || "Nieznany błąd");
              }
-             
              return data;
            } catch (err) {
-             throw new Error("Błąd połączenia: " + err.message);
+             throw err;
            }
          }
          
-         // ====== RENDER ======
+         // ====== RENDER SINGLE LEAD ======
          function renderLeadHeader(lead) {
              return `
                  <div class="lead-header">
@@ -659,28 +684,23 @@
                          <span class="status-badge ${statusClass(lead.status || lead.statusKey)}">${escapeHtml(lead.status || 'Nowy')}</span>
                          <div class="lead-updated">Aktualizacja:<br>${formatDate(lead.updated || lead.lastUpdate)}</div>
                      </div>
-                 </div>
-             `;
+                 </div>`;
          }
          
-         // ====== SINGLE LEAD ======
          async function loadSingle() {
              document.body.classList.remove("dashboard-mode");
-             showLoader("Pobieranie...");
+             showLoader("Pobieranie danych...");
              
              try {
                  const d = await apiCall({ action: 'single', row, token });
                  hideLoader();
-                 if (!d) return;
-                 if(d.success) {
+                 if (d) {
                      currentLeadStatus = String(d.lead.statusKey || "nowy");
                      renderSingle(d.lead);
-                 } else {
-                     showError("Błąd: " + (d.error || "Brak dostępu"));
                  }
              } catch(err) {
                  hideLoader();
-                 showError("Błąd połączenia: " + err.message);
+                 showErrorScreen("Nie udało się pobrać leada.", err.message);
              }
          }
          
@@ -736,7 +756,6 @@
                                  <label><input type="checkbox" value="porzucony"> Porzucony</label>
                              </div>
                          </div>
-                     
                          <div class="multiselect">
                              <div class="multiselect-btn" onclick="toggleDropdown('campList')">
                                  <span>📢 Kampanie</span><span>▼</span>
@@ -745,7 +764,6 @@
                                  <div style="padding:10px; color:#888;">Ładowanie...</div>
                              </div>
                          </div>
-                         
                          <div class="date-group">
                              <label for="dateFrom">Od:</label>
                              <input type="date" id="dateFrom">
@@ -754,7 +772,6 @@
                              <label for="dateTo">Do:</label>
                              <input type="date" id="dateTo">
                          </div>
-                         
                          <button onclick="debouncedLoadDashboard()" class="btn-tool btn-apply">🔍 Zastosuj</button>
                          <button onclick="toggleSort()" id="sortBtn" class="btn-tool">📅 Najnowsze</button>
                          <button onclick="clearFilters()" id="clearBtn" class="btn-tool disabled">🧹 Wyczyść</button>
@@ -767,20 +784,13 @@
                                      <th>ID</th><th>Data</th><th>Pacjent</th><th>Status</th><th>Aktualizacja</th><th>Czas</th><th>Kampania</th><th>Akcja</th>
                                  </tr>
                              </thead>
-                             <tbody id="tableBody">
-                                <tr>
-                                  <td colspan="8" style="text-align:center; padding:30px; color:#888;">
-                                    ⏳ Pobieranie danych…
-                                  </td>
-                                </tr>
-                              </tbody>
+                             <tbody id="tableBody"></tbody>
                          </table>
                      </div>
-                     
                      <div class="card-view" id="cardView"></div>
                      
                      <div class="load-more-wrapper">
-                         <button id="loadMoreBtn" onclick="loadDashboard(false)" class="btn-tool">Załaduj więcej</button>
+                         <button id="loadMoreBtn" onclick="loadDashboard(false)" class="btn-tool" style="display:none">Załaduj więcej</button>
                      </div>
                  </div>
              `;
@@ -793,6 +803,7 @@
              if(!isShow) el.classList.add("show");
          }
          
+         // Pobieranie kampanii
          async function fetchCampaigns() {
              const cached = localStorage.getItem(CACHE_KEY_CAMPAIGNS);
              if (cached) {
@@ -802,48 +813,47 @@
                          renderCampaigns(data);
                          return;
                      }
-                 } catch (e) {
-                     localStorage.removeItem(CACHE_KEY_CAMPAIGNS);
-                 }
+                 } catch (e) { localStorage.removeItem(CACHE_KEY_CAMPAIGNS); }
              }
              
              try {
                  const d = await apiCall({ action: 'campaigns' });
-                 if (!d) return;
-                 
-                 if (d.success && d.campaigns) {
-                     localStorage.setItem(CACHE_KEY_CAMPAIGNS, JSON.stringify({
-                         data: d.campaigns,
-                         timestamp: Date.now()
-                     }));
+                 if (d && d.campaigns) {
+                     localStorage.setItem(CACHE_KEY_CAMPAIGNS, JSON.stringify({ data: d.campaigns, timestamp: Date.now() }));
                      renderCampaigns(d.campaigns);
                  } else {
-                     document.getElementById("campList").innerHTML = 
-                         '<div style="padding:10px; color:#888;">Brak kampanii</div>';
+                     document.getElementById("campList").innerHTML = '<div style="padding:10px; color:#888;">Brak kampanii</div>';
                  }
              } catch(err) {
-                 console.error('Błąd pobierania kampanii:', err);
-                 document.getElementById("campList").innerHTML = 
-                     '<div style="padding:10px; color:#f44;">Błąd</div>';
+                 console.error(err);
+                 document.getElementById("campList").innerHTML = '<div style="padding:10px; color:#f44;">Błąd pobierania</div>';
              }
          }
          
+         // Pobieranie listy leadów
          async function loadDashboard(reset = true) {
+             const tbody = document.getElementById("tableBody");
+             const cView = document.getElementById("cardView");
+             
              if (reset) {
                  dashboardOffset = 0;
                  allLeadsMap.clear();
                  sortedLeadsList = [];
-                 document.getElementById("tableBody").innerHTML = `
-                   <tr>
-                     <td colspan="8" style="text-align:center; padding:30px; color:#888;">
-                       ⏳ Pobieranie danych…
-                     </td>
-                   </tr>`;
-                 document.getElementById("cardView").innerHTML = `
-                   <div style="padding:20px; text-align:center; color:#888;">
-                     ⏳ Pobieranie danych…
-                   </div>`;
-               }
+                 // Ujednolicony loading w tabeli
+                 tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; padding:40px;">
+                    <div class="spinner" style="margin:0 auto 10px;"></div>
+                    <div style="color:#666;">Pobieranie leadów...</div>
+                 </td></tr>`;
+                 cView.innerHTML = `<div style="text-align:center; padding:40px;">
+                    <div class="spinner" style="margin:0 auto 10px;"></div>
+                    <div style="color:#666;">Pobieranie leadów...</div>
+                 </div>`;
+                 document.getElementById("loadMoreBtn").style.display = "none";
+             } else {
+                 // Loading dla przycisku "Więcej"
+                 document.getElementById("loadMoreBtn").innerText = "Ładowanie...";
+                 document.getElementById("loadMoreBtn").style.opacity = "0.7";
+             }
          
              try {
                  const d = await apiCall({
@@ -857,21 +867,39 @@
                      campaigns: Array.from(document.querySelectorAll('#campList input:checked')).map(cb => cb.value).join(",")
                  });
                  
-                 hideLoader();
-                 if (!d) return;
-                 if (!d.success) {
-                     alert("Błąd: " + (d.error || "Nieznany"));
-                     return;
-                 }
+                 // Przywróć przycisk
+                 const btn = document.getElementById("loadMoreBtn");
+                 btn.innerText = "Załaduj więcej";
+                 btn.style.opacity = "1";
+
+                 if (!d) return; // Błąd obsłużony w apiCall (np. limit zapytań)
                  
-                 currentTotal = d.total; 
+                 currentTotal = d.total;
                  d.rows.forEach(r => allLeadsMap.set(String(r.id), r));
                  dashboardOffset += d.rows.length;
+                 
                  displayData();
+                 
+                 // Pusty stan
+                 if (allLeadsMap.size === 0) {
+                     const emptyMsg = `<div style="text-align:center; padding:30px; color:#888;">Brak wyników dla wybranych filtrów</div>`;
+                     tbody.innerHTML = `<tr><td colspan="8">${emptyMsg}</td></tr>`;
+                     cView.innerHTML = emptyMsg;
+                 }
+
                  document.getElementById("loadMoreBtn").style.display = (allLeadsMap.size < currentTotal) ? "block" : "none";
+                 
              } catch(err) {
-                 hideLoader();
-                 alert("Błąd: " + err.message);
+                 const errorMsg = `<div style="text-align:center; padding:20px; color:#d32f2f;">
+                    <strong>Błąd pobierania:</strong> ${err.message}<br>
+                    <button class="btn-tool" onclick="loadDashboard(${reset})" style="margin-top:10px">Spróbuj ponownie</button>
+                 </div>`;
+                 if (reset) {
+                    tbody.innerHTML = `<tr><td colspan="8">${errorMsg}</td></tr>`;
+                    cView.innerHTML = errorMsg;
+                 } else {
+                    showToast(err.message, 'error');
+                 }
              }
              updateClearButtonState();
          }
@@ -909,7 +937,6 @@
                  `;
                  fragment.appendChild(tr);
              });
-             
              tbody.innerHTML = '';
              tbody.appendChild(fragment);
          }
@@ -936,7 +963,6 @@
                  `;
                  fragment.appendChild(card);
              });
-             
              cardView.innerHTML = '';
              cardView.appendChild(fragment);
          }
@@ -958,15 +984,10 @@
          }
          
          function openPreview(id) {
-            sessionStorage.setItem('previewLead', id); 
-            
-            try {
+            sessionStorage.setItem('previewLead', id);
+             try {
                  const r = allLeadsMap.get(String(id));
-                 if (!r) {
-                     console.error('Lead not found:', id);
-                     alert('Nie można znaleźć leada');
-                     return;
-                 }
+                 if (!r) { showToast('Nie znaleziono leada w pamięci', 'error'); return; }
          
                  document.getElementById("previewContent").innerHTML = `
                      <div class="box">
@@ -982,11 +1003,9 @@
                          <p><strong>🦷 Info 1:</strong> ${escapeHtml(r.info1)}</p>
                          <p><strong>📝 Info 2:</strong> ${escapeHtml(r.info2)}</p>
                      </div>`;
-                 
                  document.getElementById("previewModal").classList.remove("hidden");
              } catch (error) {
-                 console.error('Error opening preview:', error);
-                 alert('Nie można otworzyć szczegółów leada');
+                 showToast('Błąd otwierania podglądu', 'error');
              }
          }
          
@@ -995,22 +1014,15 @@
              document.getElementById("previewModal").classList.add("hidden"); 
          }
          
-         // ====== STATUS UPDATE ======
+         // ====== UPDATE STATUS ======
          function handleStatusClick(newS) {
              if (currentLeadStatus === "nowy") {
                  updateStatus(newS);
              } else {
-                 const statusNames = {
-                     'obsluzony': 'Obsłużony',
-                     'nie_odbiera': 'Nie odbiera', 
-                     'odrzucony': 'Odrzucony'
-                 };
-                 document.getElementById("confirmMsg").innerHTML = `
-                     Czy na pewno chcesz zmienić status<br>
-                     z <strong>${statusNames[currentLeadStatus] || currentLeadStatus}</strong><br>
-                     na <strong>${statusNames[newS] || newS}</strong>?
-                 `;
+                 const statusNames = { 'obsluzony': 'Obsłużony', 'nie_odbiera': 'Nie odbiera', 'odrzucony': 'Odrzucony' };
+                 document.getElementById("confirmMsg").innerHTML = `Czy na pewno chcesz zmienić status<br>z <strong>${statusNames[currentLeadStatus] || currentLeadStatus}</strong><br>na <strong>${statusNames[newS] || newS}</strong>?`;
                  document.getElementById("confirmModal").classList.remove("hidden");
+                 
                  document.getElementById("confirmYes").onclick = () => {
                      document.getElementById("confirmModal").classList.add("hidden");
                      updateStatus(newS);
@@ -1026,17 +1038,20 @@
              try {
                  const d = await apiCall({ action: 'update', row, token, status: s });
                  hideLoader();
-                 if (!d) return;
-                 if (d.success) {
+                 if (d) {
                      localStorage.removeItem(CACHE_KEY_CAMPAIGNS);
-                     app.innerHTML = '<div class="content" style="text-align:center; padding:50px;"><h2>✅ Zapisano</h2><button class="btn-tool" onclick="location.reload()" style="margin:20px auto;">Wróć</button></div>';
-                 } else {
-                     alert("Błąd: " + d.error);
-                     location.reload();
+                     // Success screen inside app
+                     app.innerHTML = `
+                        <div class="content" style="text-align:center; padding:50px; display:flex; flex-direction:column; align-items:center; justify-content:center; height:80vh;">
+                            <div style="font-size:60px; margin-bottom:20px;">✅</div>
+                            <h2 style="color:#2e7d32;">Zapisano pomyślnie</h2>
+                            <p>Status został zaktualizowany.</p>
+                            <button class="btn-tool" onclick="location.reload()" style="margin-top:30px; min-width:120px;">Wróć</button>
+                        </div>`;
                  }
              } catch (e) { 
                  hideLoader();
-                 alert("Błąd: " + e.message); 
+                 showToast(e.message, 'error');
              }
          }
          
@@ -1068,7 +1083,6 @@
          
          function calculateWaitTimes(createdStr, updatedStr, waitUntilStr, status) {
              if (!createdStr || createdStr === "-") return "—";
-         
              const parse = (str) => {
                  if (!str || str === "-") return null;
                  const [date, time] = str.split(" ");
@@ -1078,7 +1092,6 @@
                  const dt = new Date(y, mo - 1, d, h, mi);
                  return isNaN(dt.getTime()) ? null : dt;
              };
-         
              const created = parse(createdStr);
              if (!created) return "—";
          
@@ -1091,7 +1104,6 @@
              const s = String(status || "").toLowerCase();
              const isFinished = ['obs', 'nie_odb', 'odrz', 'porzu'].some(x => s.includes(x));
              const end = (isFinished && updated) ? updated : now;
-         
              let rawMins = Math.max(0, Math.floor((end - created) / 60000));
              const workStart = waitUntil && waitUntil > created ? waitUntil : created;
              let workMins = Math.max(0, Math.floor((end - workStart) / 60000));
@@ -1106,7 +1118,6 @@
                  const h = Math.floor(m / 60);
                  return h > 0 ? `${h}h ${m % 60}m` : `${m}m`;
              };
-         
              return `
                  <span class="${cssClass}">${fmt(workMins)}</span>
                  <span class="wait-time-total">(łącznie: ${fmt(rawMins)})</span>
@@ -1116,11 +1127,8 @@
          function renderCampaigns(campaigns) {
              const c = document.getElementById("campList");
              c.innerHTML = campaigns.length 
-                 ? campaigns.map(name => 
-                     `<label><input type="checkbox" value="${escapeHtml(name)}"> ${escapeHtml(name)}</label>`
-                   ).join("")
+                 ? campaigns.map(name => `<label><input type="checkbox" value="${escapeHtml(name)}"> ${escapeHtml(name)}</label>`).join("")
                  : '<div style="padding:10px; color:#888;">Brak kampanii</div>';
-             
              setTimeout(() => {
                  initialFiltersState = getFiltersState();
                  updateClearButtonState();
@@ -1135,16 +1143,22 @@
          }
          
          function showLoader(t) { 
-             document.querySelector("#loader .loader-text").textContent = t; 
+             document.querySelector("#loader .loader-text").textContent = t;
              document.getElementById("loader").classList.remove("hidden"); 
          }
          
          function hideLoader() { 
-             document.getElementById("loader").classList.add("hidden"); 
+             document.getElementById("loader").classList.add("hidden");
          }
          
-         function showError(m) { 
-             app.innerHTML = `<div class="content"><h3>⛔ Błąd</h3><p>${m}</p></div>`; 
+         // Ujednolicony ekran błędu (zamiast alertów)
+         function showErrorScreen(title, details) { 
+             app.innerHTML = `
+                <div class="content" style="text-align:center; padding:50px;">
+                    <h3 style="color:#d32f2f; margin-bottom:10px;">⛔ ${title}</h3>
+                    <p style="color:#555;">${details}</p>
+                    <button class="btn-tool" onclick="location.reload()" style="margin:20px auto;">Odśwież stronę</button>
+                </div>`;
          }
          
          function getFiltersState() {
@@ -1157,16 +1171,12 @@
          }
 
          function filtersEqual(a, b) {
-            return a.dateFrom === b.dateFrom &&
-                   a.dateTo === b.dateTo &&
-                   a.status === b.status &&
-                   a.campaigns === b.campaigns;
+            return a.dateFrom === b.dateFrom && a.dateTo === b.dateTo && a.status === b.status && a.campaigns === b.campaigns;
          }
          
          function updateClearButtonState() {
              const clearBtn = document.getElementById("clearBtn");
              if (!clearBtn || !initialFiltersState) return;
-         
              const changed = !filtersEqual(getFiltersState(), initialFiltersState);
              clearBtn.classList.toggle("disabled", !changed);
              clearBtn.title = changed ? "" : "Brak aktywnych filtrów";
@@ -1175,17 +1185,10 @@
          function updateStatusButtonsOpacity(lead) {
           const buttons = document.querySelectorAll('.buttons.status-buttons a');
           const now = new Date();
-         
           buttons.forEach(btn => {
-              const key = btn.classList.contains('obs') ? 'obsluzony'
-                        : btn.classList.contains('nie') ? 'nie_odbiera'
-                        : btn.classList.contains('odrz') ? 'odrzucony'
-                        : null;
-         
+              const key = btn.classList.contains('obs') ? 'obsluzony' : btn.classList.contains('nie') ? 'nie_odbiera' : btn.classList.contains('odrz') ? 'odrzucony' : null;
               if (!key) return;
-         
               let muted = false;
-         
               if (key === 'porzucony') muted = true;
               else if (key === 'nie_odbiera') muted = false;
               else if (key === 'nowy') muted = true;
@@ -1194,7 +1197,6 @@
                   const diffMins = (now - updated) / 60000;
                   if (diffMins > 20) muted = true;
               }
-         
               if (muted) {
                   btn.style.opacity = 0.65;
                   btn.style.filter = 'grayscale(25%)';
@@ -1207,31 +1209,25 @@
          
          // ====== INIT ======
          if (row && token) {
-              showLoader("Łączenie z serwerem...");
               loadSingle();
-            } else {
-              // 1️⃣ Render UI natychmiast
+         } else {
               renderListLayout();
-            
-              // 2️⃣ Równoległe ładowanie (bez czekania na ping)
+              // Równoległe ładowanie
               Promise.all([
                 fetch(API_URL + '?action=boot', { keepalive: true }).catch(() => {}),
                 fetchCampaigns()
               ]).finally(() => {
                 loadDashboard(true);
               });
-            }
+         }
          
          document.addEventListener("click", (e) => {
              if (!e.target.closest('.multiselect')) {
                  document.querySelectorAll('.multiselect-content').forEach(el => el.classList.remove('show'));
              }
          });
-         
          document.addEventListener("change", (e) => {
-             if (e.target.closest(".dashboard-toolbar")) {
-                 debouncedUpdateClearButton();
-             }
+             if (e.target.closest(".dashboard-toolbar")) debouncedUpdateClearButton();
          });
       </script>
    </body>
